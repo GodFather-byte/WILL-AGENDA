@@ -726,7 +726,8 @@ begin
   -- Tabelas: o anônimo só tem leitura da vitrine; RLS ligado em todas.
   select string_agg(distinct table_name || ':' || privilege_type, ',' order by table_name || ':' || privilege_type) into v_list
   from information_schema.role_table_grants where table_schema = 'public' and grantee = 'anon';
-  assert v_list = 'businesses:SELECT,professional_services:SELECT,professionals:SELECT,services:SELECT,working_hours:SELECT',
+  -- (a leitura de businesses é concedida coluna a coluna, sem a chave Pix e sem o dono; ver pagamentos.sql)
+  assert v_list = 'professional_services:SELECT,professionals:SELECT,services:SELECT,working_hours:SELECT',
     'privilégios do anônimo: ' || v_list;
   assert not exists (
     select 1 from pg_class c where c.relnamespace = 'public'::regnamespace and c.relkind = 'r' and not c.relrowsecurity

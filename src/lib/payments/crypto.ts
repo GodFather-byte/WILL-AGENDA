@@ -48,5 +48,14 @@ export function decryptCredential(businessId: string, ciphertext: string) {
 export const accessKey = (businessId: string) =>
   createHmac("sha256", requireSecret()).update(`acesso:${businessId}`).digest("hex");
 
+/**
+ * Prova de que a chamada vem do servidor do app. O banco só aceita cadastrar credencial com ela
+ * (guarda o hash em server_keys), para o dono não conseguir gravar uma chave de acesso própria.
+ */
+export const serverProof = () => createHmac("sha256", requireSecret()).update("servidor:pagamentos").digest("hex");
+
+/** Hash da prova, para semear em server_keys ao habilitar a cobrança na instalação. Não é segredo. */
+export const serverProofHash = () => createHash("sha256").update(serverProof()).digest("hex");
+
 /** O que o banco guarda da chave de acesso. */
 export const accessHash = (businessId: string) => createHash("sha256").update(accessKey(businessId)).digest("hex");

@@ -107,7 +107,8 @@ export async function startPayment(supabase: SupabaseClient, token: string, orig
       description: `${begin.description} - ${begin.business_name}`,
       payerName: begin.customer_name,
       expiresAt: begin.expires_at,
-      notificationUrl: `${origin}/api/webhooks/pagamento/${session.name}?b=${begin.business_id}`,
+      // O endereço do aviso vem da configuração do servidor quando existe, não do cabeçalho da requisição.
+      notificationUrl: `${siteUrl(origin)}/api/webhooks/pagamento/${session.name}?b=${begin.business_id}`,
     });
   } catch (error) {
     console.error("criação da cobrança falhou", begin.payment_id, (error as Error).message);
@@ -166,6 +167,12 @@ export async function handleNotification(supabase: SupabaseClient, businessId: s
     if (error instanceof ProviderError && error.status === 404) return "unknown";
     throw error;
   }
+}
+
+function siteUrl(origin: string) {
+  const configured = process.env.SITE_URL ?? process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  if (!configured) return origin;
+  return (configured.startsWith("http") ? configured : `https://${configured}`).replace(/\/+$/, "");
 }
 
 export class PaymentError extends Error {

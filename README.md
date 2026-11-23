@@ -119,7 +119,11 @@ Para ligar em produção (só depois de validar com credenciais de teste do esta
 
 1. Na Vercel, em Settings → Environment Variables, cadastre `PAYMENTS_SECRET` (32 caracteres ou mais, aleatório).
    Trocar esse valor depois invalida as credenciais já guardadas.
-2. No painel do estabelecimento, em Configurações → Pagamentos, o dono cola o access token de produção do Mercado
+2. Rode `PAYMENTS_SECRET=... node scripts/payments-setup.mjs` e execute o comando SQL que ele imprime no SQL Editor
+   do Supabase. Ele registra só um hash (não é segredo) e é o que prova ao banco que a credencial veio do servidor
+   do app, e não do dono chamando o banco direto. Sem esse passo o painel responde "a cobrança online ainda não foi
+   habilitada nesta instalação".
+3. No painel do estabelecimento, em Configurações → Pagamentos, o dono cola o access token de produção do Mercado
    Pago e liga "Cobrar o sinal no agendamento".
 
 **O que foi e o que não foi testado:** a lógica acima foi testada no banco (`supabase/tests/pagamentos.sql`) e no
@@ -163,6 +167,8 @@ entrega dos webhooks precisam ser validados com credenciais de teste antes de li
 - Cada dono só enxerga e altera o próprio estabelecimento (Row Level Security em todas as tabelas). Agendamentos só
   são alterados pelas funções `owner_*`, que conferem o dono.
 - Nenhuma função é pública por padrão: a migração revoga tudo e libera uma lista explícita, conferida pelo teste.
+- A chave Pix e o identificador do dono não entram na leitura pública do estabelecimento: a chave só chega a quem
+  tem o link de um agendamento e ao próprio dono.
 - Proteção contra enxurrada: no máximo 5 agendamentos em aberto por telefone, 60 agendamentos online por hora por
   estabelecimento e 20 por hora por visitante (IP guardado só como hash, que muda a cada dia).
 - **Dados sensíveis (LGPD):** o sistema guarda só agenda e contato. Não há prontuário, anamnese, diagnóstico nem foto
@@ -177,6 +183,14 @@ entrega dos webhooks precisam ser validados com credenciais de teste antes de li
   cadastre cada vaga como um profissional.
 - Fuso fixo de São Paulo.
 - Sem lembrete automático: o dono envia confirmação e link pelo próprio WhatsApp, com um toque.
+- O limite de uso da IA (`ai_rate_hit`) pode ser chamado direto por um visitante, que conseguiria esgotar o teto
+  horário de um estabelecimento e deixar o atendente dele fora do ar por até uma hora. Não vaza dado nem gera custo;
+  fechar isso exige uma prova do servidor como a dos pagamentos.
+- A trava "só grava depois do resumo" do atendente protege contra erro do modelo, não contra um visitante mal
+  intencionado: ele já pode agendar pela página, com as mesmas regras do banco.
+- "Cliente não escolhe o profissional" vale na tela e no atendente, não no banco.
+- O webhook de pagamento não confere assinatura nem tem limite de chamadas. Ele não confirma nada sozinho (a situação
+  vem da API do provedor), mas alguém pode provocar consultas ao provedor em nome de um estabelecimento.
 - Pagamento: só Pix, só sinal (ou valor total) no momento do agendamento, estorno sempre total. Sem cartão, sem
   parcelamento, sem cobrança de falta.
 - Trocar o slug quebra os links já enviados.

@@ -39,7 +39,12 @@ export async function POST(request: Request) {
   }
 
   // Teto de uso por cliente e por estabelecimento. O IP é guardado apenas como hash.
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "desconhecido";
+  // Na Vercel, x-vercel-forwarded-for e x-real-ip são preenchidos pela plataforma (não pelo visitante).
+  const ip =
+    request.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() ||
+    request.headers.get("x-real-ip")?.trim() ||
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    "desconhecido";
   const client = createHash("sha256").update(ip).digest("hex").slice(0, 32);
   const { data: allowed, error: rateError } = await supabase.rpc("ai_rate_hit", {
     p_business_id: business.id,

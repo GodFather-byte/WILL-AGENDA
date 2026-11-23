@@ -43,6 +43,7 @@ declare
   v_b uuid := (select id from public.businesses where slug = 'salao-pagamento');
   v_key text := 'chave-de-acesso-do-servidor';
   v_hash text := encode(sha256(convert_to('chave-de-acesso-do-servidor', 'utf8')), 'hex');
+  v_proof text := 'prova-do-servidor-do-app';
   v_token uuid;
   v_other uuid;
   v_row public.appointments%rowtype;
@@ -76,7 +77,16 @@ begin
 
   -- 2. O interruptor só liga com credencial; a credencial só entra pelo dono e nunca volta em texto.
   assert pg_temp.raises(format('select public.set_charge_on_booking(%L, true)', v_b), 'AG409'), 'sem credencial não liga';
-  perform public.set_payment_credentials(v_b, 'mercadopago', 'v1.texto-cifrado-pelo-servidor.abcdef', '9f3a', v_hash);
+  -- Sem a prova do servidor (instalação não habilitada, ou dono chamando o banco direto) a credencial não entra.
+  assert pg_temp.raises(format('select public.set_payment_credentials(%L, %L, %L, %L, %L, %L)', v_b, 'mercadopago', 'v1.texto-cifrado-pelo-servidor.abcdef', '9f3a', v_hash, v_proof), 'AG403'),
+    'instalação sem a prova semeada';
+  insert into public.server_keys (purpose, key_hash) values ('payments', encode(sha256(convert_to(v_proof, 'utf8')), 'hex'))
+  on conflict (purpose) do update set key_hash = excluded.key_hash;
+  assert pg_temp.raises(format('select public.set_payment_credentials(%L, %L, %L, %L, %L, %L)', v_b, 'mercadopago', 'v1.texto-cifrado-pelo-servidor.abcdef', '9f3a', v_hash, 'chute-do-dono'), 'AG403'),
+    'dono não cadastra credencial sem passar pelo servidor';
+  assert pg_temp.raises(format('select public.set_payment_credentials(%L, %L, %L, %L, %L, null)', v_b, 'mercadopago', 'v1.texto-cifrado-pelo-servidor.abcdef', '9f3a', v_hash), 'AG403'),
+    'nem sem prova nenhuma';
+  perform public.set_payment_credentials(v_b, 'mercadopago', 'v1.texto-cifrado-pelo-servidor.abcdef', '9f3a', v_hash, v_proof);
   v_r := public.payment_credentials_status(v_b);
   assert (v_r ->> 'connected')::boolean and v_r ->> 'key_hint' = '9f3a' and not (v_r ? 'ciphertext'), 'dono vê só a dica';
   assert pg_temp.raises(format('select public.server_payment_credentials(%L, %L)', v_b, 'chave-errada'), 'AG403'), 'servidor com chave errada';
@@ -86,7 +96,7 @@ begin
 
   -- Outro dono não mexe nisso.
   perform pg_temp.login('00000000-0000-0000-0000-0000000000b2');
-  assert pg_temp.raises(format('select public.set_payment_credentials(%L, %L, %L, %L, %L)', v_b, 'mercadopago', 'x'||repeat('y', 30), 'aaaa', v_hash), 'AG403'), 'outro dono não troca credencial';
+  assert pg_temp.raises(format('select public.set_payment_credentials(%L, %L, %L, %L, %L, %L)', v_b, 'mercadopago', 'x'||repeat('y', 30), 'aaaa', v_hash, v_proof), 'AG403'), 'outro dono não troca credencial';
   assert pg_temp.raises(format('select public.set_charge_on_booking(%L, false)', v_b), 'AG403'), 'outro dono não desliga';
   assert pg_temp.raises(format('select public.payment_credentials_status(%L)', v_b), 'AG403'), 'outro dono não vê a credencial';
   assert pg_temp.raises(format('select public.owner_mark_paid(%L, true)', v_row.id), 'AG403'), 'outro dono não marca pagamento';
@@ -99,6 +109,15 @@ begin
   assert v_row.status = 'pending' and v_row.payment_status = 'awaiting' and v_row.deposit_cents = 2400, 'aguardando pagamento';
   assert v_row.hold_expires_at between now() + interval '14 minutes' and now() + interval '16 minutes', 'reserva de 15 minutos';
   assert pg_temp.raises(format('select pg_temp.book(%L, %L, %L)', v_b, '10:00', '11999990203'), 'AG409'), 'horário reservado não é oferecido a outro';
+
+  -- Remarcar sem ter pago não confirma o horário (o salão confirma sozinho, mas só depois do sinal).
+  v_r := public.reschedule_appointment(v_token, public.local_ts((v_row.starts_at at time zone public.tz())::date, '10:30'));
+  assert v_r ->> 'status' = 'pending' and v_r ->> 'payment_status' = 'awaiting' and v_r ->> 'time' = '10:30', 'remarcar não dribla o pagamento: ' || (v_r ->> 'status');
+  perform pg_temp.login('00000000-0000-0000-0000-0000000000b1');
+  assert (public.owner_set_appointment_status(v_row.id, 'confirmed') ->> 'status') = 'pending', 'nem o botão de confirmar pula o sinal';
+  perform set_config('request.jwt.claims', '', true);
+  v_r := public.reschedule_appointment(v_token, public.local_ts((v_row.starts_at at time zone public.tz())::date, '10:00'));
+  assert v_r ->> 'status' = 'pending', 'de volta às 10:00, ainda aguardando';
 
   -- Começar o pagamento é idempotente: duas chamadas, uma cobrança.
   v_r := public.payment_begin(v_token);
@@ -154,6 +173,9 @@ begin
   update public.appointments set hold_expires_at = now() - interval '1 minute' where public_token = v_token;
   assert (public.get_appointment(v_token) ->> 'hold_expired')::boolean, 'cliente vê que venceu';
   assert pg_temp.raises(format('select public.payment_begin(%L)', v_token), 'AG409'), 'vencida não paga';
+  -- Vencida, não remarca mais (senão seguraria outro horário sem pagar).
+  assert pg_temp.raises(format('select public.reschedule_appointment(%L, %L)', v_token,
+    public.local_ts(public.local_today() + 8 + ((3 - extract(dow from public.local_today() + 8)::integer + 7) % 7), '15:00')), 'AG409'), 'reserva vencida não remarca';
   v_other := pg_temp.book(v_b, '11:00', '11999990205');
   assert (select status = 'pending' and payment_status = 'awaiting' from public.appointments where public_token = v_other), 'outro cliente ficou com o horário';
   assert (select status = 'canceled' and payment_status = 'none' and cancel_reason = 'Pagamento não realizado no prazo'
@@ -176,6 +198,13 @@ begin
   assert (public.server_payment_result(v_b, v_key, 'mercadopago', 'mp-3003', 'failed', null) ->> 'state') = 'canceled', 'recusado no provedor';
   assert (public.payment_begin(v_token) ->> 'payment_id')::uuid <> v_payment, 'nova cobrança para o mesmo agendamento';
 
+  -- O dono recebeu por fora: libera do sinal, confirma e encerra a cobrança em aberto.
+  perform pg_temp.login('00000000-0000-0000-0000-0000000000b1');
+  v_r := public.owner_mark_paid((select id from public.appointments where public_token = v_token), true);
+  assert v_r ->> 'status' = 'confirmed' and v_r ->> 'payment_status' = 'manual_paid' and v_r ->> 'hold_expires_at' is null, 'liberado pelo dono';
+  assert not exists (select 1 from public.payments p join public.appointments a on a.id = p.appointment_id
+                     where a.public_token = v_token and p.status = 'pending'), 'cobrança em aberto encerrada';
+
   -- 6. Agendamento feito pelo dono no painel não exige pagamento.
   perform pg_temp.login('00000000-0000-0000-0000-0000000000b1');
   v_r := public.owner_create_appointment(jsonb_build_object(
@@ -194,15 +223,22 @@ begin
   perform set_config('request.jwt.claims', '{"role": "anon"}', true);
   set local role anon;
   assert pg_temp.raises('select count(*) from public.payment_credentials', '42501'), 'anônimo não lê credenciais';
+  assert pg_temp.raises('select count(*) from public.server_keys', '42501'), 'anônimo não lê a prova do servidor';
+  assert pg_temp.raises('select pix_key from public.businesses', '42501'), 'anônimo não lista chaves Pix';
+  assert pg_temp.raises('select owner_id from public.businesses', '42501'), 'anônimo não lista donos';
+  assert pg_temp.raises('select * from public.businesses', '42501'), 'nem com asterisco';
+  select count(*) into v_count from public.businesses where has_pix;
+  assert v_count >= 0, 'anônimo sabe só se há chave Pix';
   assert pg_temp.raises('select count(*) from public.payments', '42501'), 'anônimo não lê pagamentos';
   assert pg_temp.raises(format('update public.businesses set charge_on_booking = true where id = %L', v_b), '42501'), 'anônimo não liga cobrança';
-  assert pg_temp.raises(format('select public.set_payment_credentials(%L, %L, %L, %L, %L)', v_b, 'mercadopago', repeat('z', 40), 'aaaa', v_hash), '42501'), 'anônimo não cadastra credencial';
+  assert pg_temp.raises(format('select public.set_payment_credentials(%L, %L, %L, %L, %L, %L)', v_b, 'mercadopago', repeat('z', 40), 'aaaa', v_hash, v_proof), '42501'), 'anônimo não cadastra credencial';
   assert pg_temp.raises(format('select public.owner_mark_paid(%L, true)', v_row.id), '42501'), 'anônimo não marca pagamento';
   assert pg_temp.raises(format('select public.require_server_key(%L, %L)', v_b, v_key), '42501'), 'função interna fechada';
   reset role;
   perform pg_temp.login('00000000-0000-0000-0000-0000000000b1');
   set local role authenticated;
   assert pg_temp.raises('select count(*) from public.payment_credentials', '42501'), 'nem o dono lê a tabela de credenciais';
+  assert pg_temp.raises('select pix_key from public.businesses', '42501'), 'conta logada não lista chaves Pix de todos';
   assert pg_temp.raises(format('update public.businesses set charge_on_booking = true where id = %L', v_b), '42501'), 'o interruptor só liga pela função';
   assert pg_temp.raises(format('update public.payments set status = %L where business_id = %L', 'paid', v_b), '42501'), 'dono não altera pagamento';
   select count(*) into v_count from public.payments where business_id = v_b;
@@ -210,6 +246,7 @@ begin
   update public.businesses set pix_key = 'pix@salao.exemplo', deposit_type = 'full' where id = v_b;
   get diagnostics v_count = row_count;
   assert v_count = 1, 'dono cadastra chave Pix e regra do sinal';
+  assert (public.payment_credentials_status(v_b) ->> 'pix_key') = 'pix@salao.exemplo', 'o dono lê a própria chave pela função';
   reset role;
   perform pg_temp.login('00000000-0000-0000-0000-0000000000b2');
   set local role authenticated;

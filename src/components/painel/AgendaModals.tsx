@@ -341,7 +341,7 @@ export function AppointmentModal({
               {appointment.cancel_reason ? ` — ${appointment.cancel_reason}` : ""}
             </Line>
           )}
-          {(appointment.payment_status !== "none" || (business.pix_key && appointment.deposit_cents > 0)) && (
+          {(appointment.payment_status !== "none" || (business.has_pix && appointment.deposit_cents > 0)) && (
             <Line label="Pagamento">
               {PAYMENT_STATUS_LABEL[appointment.payment_status]}
               {appointment.deposit_cents > 0 ? ` (sinal de ${brl(appointment.deposit_cents)})` : ""}
@@ -383,7 +383,7 @@ export function AppointmentModal({
               )}
             </div>
             {/* Pix copia e cola (cobrança desligada): quem confere o recebimento é o dono. */}
-            {appointment.status !== "canceled" && ["none", "manual_paid"].includes(appointment.payment_status) && appointment.deposit_cents > 0 && business.pix_key && (
+            {appointment.status !== "canceled" && ["none", "manual_paid"].includes(appointment.payment_status) && appointment.deposit_cents > 0 && business.has_pix && (
               <button className="btn-outline w-full" disabled={busy}
                 onClick={() =>
                   run(
@@ -392,6 +392,13 @@ export function AppointmentModal({
                   )
                 }>
                 {appointment.payment_status === "none" ? "Marcar pagamento recebido" : "Desfazer pagamento recebido"}
+              </button>
+            )}
+            {/* Cobrança ligada e o cliente pagou por fora: o dono libera do sinal e confirma. */}
+            {appointment.status === "pending" && appointment.payment_status === "awaiting" && (
+              <button className="btn-outline w-full" disabled={busy}
+                onClick={() => run(() => createClient().rpc("owner_mark_paid", { p_appointment_id: appointment.id, p_paid: true }), false)}>
+                Recebi por fora: confirmar sem o Pix
               </button>
             )}
             {open && (

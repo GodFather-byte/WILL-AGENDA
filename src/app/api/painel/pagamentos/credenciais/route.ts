@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { fetchBusinessByOwner } from "@/lib/data";
-import { accessHash, encryptCredential, paymentsConfigured } from "@/lib/payments/crypto";
+import { accessHash, encryptCredential, paymentsConfigured, serverProof } from "@/lib/payments/crypto";
 import { createClient } from "@/lib/supabase/server";
 
 const Body = z.object({
@@ -38,8 +38,14 @@ export async function POST(request: Request) {
     p_ciphertext: encryptCredential(business.id, credential),
     p_key_hint: credential.slice(-4),
     p_access_hash: accessHash(business.id),
+    p_server_proof: serverProof(),
   });
-  if (error) return NextResponse.json({ error: "Não foi possível guardar a credencial." }, { status: 500 });
+  if (error) {
+    return NextResponse.json(
+      { error: error.code === "AG403" ? error.message : "Não foi possível guardar a credencial." },
+      { status: error.code === "AG403" ? 503 : 500 },
+    );
+  }
   return NextResponse.json({ connected: true, provider, key_hint: credential.slice(-4) });
 }
 

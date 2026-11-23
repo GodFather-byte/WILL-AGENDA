@@ -2,7 +2,6 @@ export type Segment = "clinica" | "estetica" | "salao" | "bronze";
 
 export type Business = {
   id: string;
-  owner_id: string;
   slug: string;
   name: string;
   segment: Segment;
@@ -20,8 +19,8 @@ export type Business = {
   max_advance_days: number;
   cancel_notice_minutes: number;
   ai_enabled: boolean;
-  /** Chave Pix para o "copia e cola" com confirmação manual. */
-  pix_key: string | null;
+  /** O estabelecimento tem chave Pix para o "copia e cola" com confirmação manual. A chave em si não é pública. */
+  has_pix: boolean;
   /** Cobrança do sinal pelo provedor. Desligada por padrão. */
   charge_on_booking: boolean;
   deposit_type: "percent" | "fixed" | "full";
@@ -142,9 +141,11 @@ export type PublicAppointment = {
     | "booking_notice"
     | "cancel_notice_minutes"
     | "choose_professional"
-    | "pix_key"
     | "charge_on_booking"
-  >;
+  > & {
+    /** Só chega aqui, para quem tem o link do agendamento. */
+    pix_key: string | null;
+  };
 };
 
 /** Agendamento na visão do dono (appointment_json). */

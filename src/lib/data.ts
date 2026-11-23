@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Business, Catalog, Professional, Service, WorkingHour } from "./types";
 
 export const BUSINESS_COLUMNS =
-  "id, owner_id, slug, name, segment, description, booking_notice, phone, address, logo_url, primary_color, is_accepting, auto_confirm, choose_professional, slot_step_minutes, min_notice_minutes, max_advance_days, cancel_notice_minutes, ai_enabled, pix_key, charge_on_booking, deposit_type, deposit_value, hold_minutes";
+  "id, slug, name, segment, description, booking_notice, phone, address, logo_url, primary_color, is_accepting, auto_confirm, choose_professional, slot_step_minutes, min_notice_minutes, max_advance_days, cancel_notice_minutes, ai_enabled, has_pix, charge_on_booking, deposit_type, deposit_value, hold_minutes";
 
 const SERVICE_COLUMNS =
   "id, business_id, name, description, category, duration_minutes, price_cents, price_from, is_active, position";

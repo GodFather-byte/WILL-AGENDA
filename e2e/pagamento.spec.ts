@@ -9,6 +9,8 @@ import { createSalon, phone } from "./helpers";
 const MP = "http://127.0.0.1:4020";
 const CREDENTIAL = "TEST-credencial-simulada-do-estabelecimento-1234";
 const DB = process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+// O mesmo valor que playwright.config.ts dá ao servidor de teste.
+const TEST_SECRET = "segredo-de-teste-com-mais-de-32-caracteres-0001";
 const run = Date.now().toString(36);
 const slug = `salao-pix-${run}`;
 
@@ -48,6 +50,9 @@ test.beforeAll(async ({ browser }) => {
   owner = await createSalon(browser, { email: `dona-pix-${run}@teste.local`, slug, name: `Salão Pix ${run}` });
   customer = await (await phone(browser)).newPage();
   businessId = execSync(`psql "${DB}" -qAt -c "select id from public.businesses where slug = '${slug}'"`).toString().trim();
+  // Habilita a cobrança nesta instalação de teste, como o README manda fazer em produção.
+  const sql = execSync("node scripts/payments-setup.mjs", { env: { ...process.env, PAYMENTS_SECRET: TEST_SECRET } }).toString();
+  execSync(`psql "${DB}" -q`, { input: sql });
 });
 
 test("desligado por padrão: Pix copia e cola da chave do salão, confirmação manual, nenhuma chamada ao provedor", async () => {

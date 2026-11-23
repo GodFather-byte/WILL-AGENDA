@@ -5,7 +5,7 @@ import { brl, centsToInput, depositFor, errorMessage, parseBRL } from "@/lib/for
 import { createClient } from "@/lib/supabase/client";
 import { useBusiness } from "./BusinessContext";
 
-type Status = { available: boolean; connected: boolean; provider?: string; key_hint?: string };
+type Status = { available: boolean; connected: boolean; provider?: string; key_hint?: string; pix_key?: string | null };
 
 /**
  * Pagamentos. Duas coisas independentes:
@@ -15,7 +15,8 @@ type Status = { available: boolean; connected: boolean; provider?: string; key_h
  */
 export function PaymentSettings() {
   const { business, setBusiness } = useBusiness();
-  const [pixKey, setPixKey] = useState(business.pix_key ?? "");
+  // A chave Pix não fica na leitura pública do estabelecimento: vem junto com a situação da credencial.
+  const [pixKey, setPixKey] = useState("");
   const [type, setType] = useState(business.deposit_type);
   const [value, setValue] = useState(
     business.deposit_type === "fixed" ? centsToInput(business.deposit_value) : String(business.deposit_value),
@@ -28,7 +29,9 @@ export function PaymentSettings() {
 
   const loadStatus = useCallback(async () => {
     const response = await fetch("/api/painel/pagamentos/credenciais").catch(() => null);
-    setStatus(response?.ok ? ((await response.json()) as Status) : { available: false, connected: false });
+    const next = response?.ok ? ((await response.json()) as Status) : { available: false, connected: false };
+    setStatus(next);
+    setPixKey((current) => current || (next.pix_key ?? ""));
   }, []);
 
   useEffect(() => {
@@ -47,7 +50,7 @@ export function PaymentSettings() {
     const { error } = await createClient().from("businesses").update(patch).eq("id", business.id);
     setBusy(false);
     if (error) return setMessage({ ok: false, text: "Não foi possível salvar." });
-    setBusiness({ ...business, ...patch });
+    setBusiness({ ...business, deposit_type: patch.deposit_type, deposit_value: patch.deposit_value, hold_minutes: patch.hold_minutes, has_pix: patch.pix_key !== null });
     setMessage({ ok: true, text: "Pagamentos salvos." });
   }
 
@@ -134,7 +137,7 @@ export function PaymentSettings() {
           </div>
         </div>
         <p className="text-xs text-stone-500">Exemplo: em um serviço de R$ 100,00 o sinal fica em {brl(example)}.</p>
-        <button className="btn-outline" disabled={busy}>Salvar pagamentos</button>
+        <button className="btn-outline" disabled={busy || status === null}>Salvar pagamentos</button>
       </form>
 
       <div className="space-y-3 border-t border-stone-200 pt-4">

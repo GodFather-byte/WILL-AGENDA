@@ -31,6 +31,31 @@ alter table public.businesses
 -- O interruptor não entra aqui: só liga por set_charge_on_booking, que exige credenciais.
 grant update (pix_key, deposit_type, deposit_value, hold_minutes) on public.businesses to authenticated;
 
+-- A chave Pix costuma ser CPF, celular ou e-mail do dono: não entra na leitura pública da tabela.
+-- O cliente a recebe só dentro do próprio agendamento (get_appointment) e o dono, por
+-- payment_credentials_status. O público sabe apenas se existe (has_pix). O identificador do dono
+-- também sai da leitura anônima.
+alter table public.businesses add column has_pix boolean generated always as (pix_key is not null) stored;
+revoke select on public.businesses from anon, authenticated;
+grant select (
+  id, slug, name, segment, description, booking_notice, phone, address, logo_url, primary_color,
+  is_accepting, auto_confirm, choose_professional, slot_step_minutes, min_notice_minutes,
+  max_advance_days, cancel_notice_minutes, ai_enabled, created_at, charge_on_booking, deposit_type,
+  deposit_value, hold_minutes, has_pix
+) on public.businesses to anon, authenticated;
+grant select (owner_id) on public.businesses to authenticated;
+
+-- Prova de que quem cadastra credencial é o servidor do app, e não o dono chamando o banco direto
+-- (o que o deixaria escolher a própria chave de acesso). Guarda só o hash; a linha é semeada uma
+-- vez por instalação, quando a cobrança online for habilitada (ver README, "Pagamentos").
+create table public.server_keys (
+  purpose text primary key check (purpose in ('payments')),
+  key_hash text not null check (key_hash ~ '^[0-9a-f]{64}$'),
+  created_at timestamptz not null default now()
+);
+alter table public.server_keys enable row level security;
+revoke all on public.server_keys from anon, authenticated;
+
 alter table public.appointments
   add column deposit_cents integer not null default 0 check (deposit_cents >= 0),
   add column payment_status text not null default 'none'
@@ -129,6 +154,30 @@ $$;
 create trigger appointments_payment_defaults
 before insert on public.appointments
 for each row execute function public.appointments_payment_defaults();
+
+-- Enquanto o sinal não é pago, o agendamento não confirma por nenhum caminho (remarcar, por exemplo)
+-- e, vencido o prazo, não pode mais ser remarcado: só pago, liberado pelo dono ou cancelado.
+create function public.appointments_guard_unpaid()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if old.payment_status = 'awaiting' and new.payment_status = 'awaiting' and new.status <> 'canceled' then
+    if old.hold_expires_at < now()
+       and (new.starts_at <> old.starts_at or new.professional_id <> old.professional_id) then
+      raise exception 'O prazo para pagar terminou e o horário foi liberado. Agende de novo.' using errcode = 'AG409';
+    end if;
+    new.status := 'pending';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger appointments_guard_unpaid
+before update on public.appointments
+for each row execute function public.appointments_guard_unpaid();
 
 -- Reserva vencida: cancela e libera o horário. Roda antes de qualquer agendamento ou remarcação
 -- que queira aquele profissional naquele intervalo, então a reserva vencida nunca bloqueia ninguém.
@@ -268,7 +317,7 @@ as $$
       select 1 from public.appointments a
       where a.professional_id = sl.professional_id
         and a.status in ('pending', 'confirmed', 'completed')
-        and not (a.payment_status = 'awaiting' and a.hold_expires_at < now())
+        and not (a.status = 'pending' and a.payment_status = 'awaiting' and a.hold_expires_at < now())
         and a.id is distinct from p_ignore_appointment
         and a.starts_at < sl.ends_at and a.ends_at > sl.starts_at
     );
@@ -397,7 +446,7 @@ $$;
 
 -- Guarda a credencial já cifrada pelo servidor do app. Só o dono logado consegue chamar.
 create function public.set_payment_credentials(
-  p_business_id uuid, p_provider text, p_ciphertext text, p_key_hint text, p_access_hash text
+  p_business_id uuid, p_provider text, p_ciphertext text, p_key_hint text, p_access_hash text, p_server_proof text
 )
 returns void
 language plpgsql
@@ -406,6 +455,14 @@ set search_path = ''
 as $$
 begin
   perform public.require_owner(p_business_id);
+  -- Só o servidor do app sabe a prova. Sem ela, o dono poderia gravar uma chave de acesso escolhida
+  -- por ele e passar a falar com as funções server_* em nome do próprio estabelecimento.
+  if p_server_proof is null or not exists (
+    select 1 from public.server_keys k
+    where k.purpose = 'payments' and k.key_hash = encode(sha256(convert_to(p_server_proof, 'utf8')), 'hex')
+  ) then
+    raise exception 'A cobrança online ainda não foi habilitada nesta instalação.' using errcode = 'AG403';
+  end if;
   insert into public.payment_credentials (business_id, provider, ciphertext, key_hint, access_hash)
   values (p_business_id, p_provider, p_ciphertext, left(p_key_hint, 8), p_access_hash)
   on conflict (business_id) do update
@@ -441,7 +498,8 @@ begin
   return coalesce(
     (select jsonb_build_object('connected', true, 'provider', c.provider, 'key_hint', c.key_hint, 'updated_at', c.updated_at)
        from public.payment_credentials c where c.business_id = p_business_id),
-    jsonb_build_object('connected', false));
+    jsonb_build_object('connected', false))
+    || jsonb_build_object('pix_key', (select b.pix_key from public.businesses b where b.id = p_business_id));
 end;
 $$;
 
@@ -477,6 +535,15 @@ begin
     raise exception 'Agendamento não encontrado.' using errcode = 'AG404';
   end if;
   perform public.require_owner(v_appointment.business_id);
+  if v_appointment.payment_status = 'awaiting' and p_paid and v_appointment.status = 'pending' then
+    -- O dono recebeu por fora (dinheiro, Pix direto): encerra a cobrança em aberto e confirma.
+    update public.payments set status = 'canceled' where appointment_id = v_appointment.id and status = 'pending';
+    update public.appointments
+       set payment_status = 'manual_paid', hold_expires_at = null, status = 'confirmed'
+     where id = v_appointment.id
+    returning * into v_appointment;
+    return public.appointment_json(v_appointment);
+  end if;
   if v_appointment.payment_status not in ('none', 'manual_paid') then
     raise exception 'Este agendamento tem pagamento pelo provedor: a situação muda sozinha.' using errcode = 'AG409';
   end if;
@@ -561,7 +628,9 @@ as $$
         'id', p.id, 'status', p.status, 'provider', p.provider,
         'provider_payment_id', p.provider_payment_id, 'amount_cents', p.amount_cents))
       from public.payments p
-      where p.appointment_id = a.id and p.status in ('pending', 'refund_pending') and p.provider_payment_id is not null
+      where p.appointment_id = a.id and p.provider_payment_id is not null
+        and (p.status in ('pending', 'refund_pending')
+             or (p.status in ('expired', 'canceled') and p.created_at > now() - interval '3 days'))
     ), '[]'::jsonb)
   )
   from public.appointments a
@@ -652,9 +721,11 @@ begin
   if p_status = 'pending' then
     return jsonb_build_object('state', v_payment.status, 'payment_id', v_payment.id);
   end if;
+  -- Daqui para baixo a cobrança pode estar em aberto, vencida ou encerrada: se o dinheiro chegou
+  -- de qualquer jeito (pagamento atrasado), ele precisa ser reconhecido para ser devolvido.
   if p_status <> 'approved' then
     update public.payments set status = 'canceled' where id = v_payment.id and status = 'pending';
-    return jsonb_build_object('state', 'canceled', 'payment_id', v_payment.id);
+    return jsonb_build_object('state', case when v_payment.status = 'pending' then 'canceled' else v_payment.status end, 'payment_id', v_payment.id);
   end if;
   -- Valor pago diferente do cobrado: não confirma nada.
   if p_amount_cents is distinct from v_payment.amount_cents then
@@ -734,9 +805,10 @@ revoke execute on function
   public.deposit_for(text, integer, integer),
   public.appointments_payment_defaults(),
   public.appointments_release_expired_holds(),
+  public.appointments_guard_unpaid(),
   public.appointments_cancel_payment(),
   public.release_hold(uuid),
-  public.set_payment_credentials(uuid, text, text, text, text),
+  public.set_payment_credentials(uuid, text, text, text, text, text),
   public.delete_payment_credentials(uuid),
   public.payment_credentials_status(uuid),
   public.set_charge_on_booking(uuid, boolean),
@@ -764,7 +836,7 @@ grant execute on function
 to anon, authenticated;
 
 grant execute on function
-  public.set_payment_credentials(uuid, text, text, text, text),
+  public.set_payment_credentials(uuid, text, text, text, text, text),
   public.delete_payment_credentials(uuid),
   public.payment_credentials_status(uuid),
   public.set_charge_on_booking(uuid, boolean),
