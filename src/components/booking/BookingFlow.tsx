@@ -19,6 +19,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import type { BookedAppointment, Catalog, PublicAppointment, Service, Slot } from "@/lib/types";
 import { BusinessHeader } from "./BusinessHeader";
+import { ChatWidget } from "./ChatWidget";
 import { SlotPicker } from "./SlotPicker";
 import {
   forgetAppointment,
@@ -32,7 +33,7 @@ import {
 type Step = "service" | "professional" | "time" | "details" | "done";
 
 /** Página pública: o cliente agenda sem baixar app e sem criar conta. */
-export function BookingFlow({ catalog, today }: { catalog: Catalog; today: string }) {
+export function BookingFlow({ catalog, today, chat }: { catalog: Catalog; today: string; chat: boolean }) {
   const { business, services, professionals } = catalog;
   const supabase = useMemo(() => createClient(), []);
 
@@ -379,6 +380,7 @@ export function BookingFlow({ catalog, today }: { catalog: Catalog; today: strin
           </section>
         )}
       </main>
+      {chat && business.is_accepting && services.length > 0 && <ChatWidget business={business} />}
     </div>
   );
 }

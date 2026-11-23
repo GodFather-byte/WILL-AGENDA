@@ -16,10 +16,19 @@ export default defineConfig({
     timezoneId: "Asia/Tokyo",
     trace: "off",
   },
-  webServer: {
-    command: "npm run dev",
-    url: "http://localhost:3000",
-    reuseExistingServer: true,
-    timeout: 120_000,
-  },
+  webServer: [
+    // API simulada da IA: valida as ferramentas, não a qualidade do modelo.
+    { command: "node e2e/mock-anthropic.mjs", url: "http://127.0.0.1:4010", reuseExistingServer: true, timeout: 30_000 },
+    {
+      command: "npm run dev",
+      url: "http://localhost:3000",
+      reuseExistingServer: true,
+      timeout: 120_000,
+      env: {
+        ANTHROPIC_API_KEY: "chave-de-teste-simulada",
+        ANTHROPIC_BASE_URL: "http://127.0.0.1:4010",
+        ANTHROPIC_MODEL: "claude-haiku-5-5",
+      },
+    },
+  ],
 });

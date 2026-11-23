@@ -34,6 +34,7 @@ export function SettingsForm() {
     min_notice_minutes: business.min_notice_minutes,
     max_advance_days: String(business.max_advance_days),
     cancel_notice_minutes: business.cancel_notice_minutes,
+    ai_enabled: business.ai_enabled,
   });
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -62,6 +63,7 @@ export function SettingsForm() {
       min_notice_minutes: form.min_notice_minutes,
       max_advance_days: days,
       cancel_notice_minutes: form.cancel_notice_minutes,
+      ai_enabled: form.ai_enabled,
     };
     const { error } = await createClient().from("businesses").update(patch).eq("id", business.id);
     setBusy(false);
@@ -174,6 +176,20 @@ export function SettingsForm() {
             </select>
           </div>
         </div>
+      </section>
+
+      <section className="card space-y-3 p-5">
+        <h2 className="font-semibold">Atendente de IA</h2>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-0.5" checked={form.ai_enabled} onChange={(e) => set("ai_enabled", e.target.checked)} />
+          <span>
+            Ativar o atendente virtual na página de agendamento
+            <span className="block text-xs text-stone-500">
+              Ele tira dúvidas, oferece horários livres e agenda, remarca e cancela pelo chat, sempre depois de mostrar
+              o resumo e o cliente confirmar.
+            </span>
+          </span>
+        </label>
       </section>
 
       {message && (

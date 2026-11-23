@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { cache } from "react";
 import { CreateBusinessForm } from "@/components/painel/CreateBusinessForm";
 import { PainelShell } from "@/components/painel/PainelShell";
@@ -12,6 +13,8 @@ export const instant = false;
 
 // Uma leitura só por requisição, usada pelo layout e pelos metadados.
 const loadOwner = cache(async () => {
+  // Sessão e relógio dependem da requisição: nada daqui entra na parte pré-renderizada.
+  await connection();
   const supabase = await createClient();
   const {
     data: { user },

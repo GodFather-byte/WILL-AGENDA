@@ -12,6 +12,7 @@ import { BUSINESS_COLUMNS, fetchCatalog } from "@/lib/data";
 import { createClient } from "@/lib/supabase/client";
 import type { Business, Catalog } from "@/lib/types";
 import { BusinessContext, DATA_CHANGED } from "./BusinessContext";
+import { Copilot } from "./Copilot";
 
 const NAV = [
   { href: "/painel", label: "Agenda" },
@@ -118,10 +119,11 @@ export function PainelShell({
             </div>
           </div>
         </header>
-        <div className="mx-auto w-full max-w-7xl flex-1 px-4 pb-24 pt-6">
+        <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-24 pt-6">
           <InstallPrompt variant="banner" appName={business.name} storageKey={`${STORAGE_PREFIX}:instalar:painel`} className="mb-4" />
           {children}
-        </div>
+        </main>
+        <Copilot />
       </div>
     </BusinessContext.Provider>
   );

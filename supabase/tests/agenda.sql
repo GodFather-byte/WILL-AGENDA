@@ -708,10 +708,19 @@ begin
   reset role;
   perform set_config('request.jwt.claims', '', true);
 
+  -- Limite de uso da IA: 25 mensagens por cliente a cada 10 minutos; a 26ª é recusada.
+  -- Outro cliente do mesmo estabelecimento continua podendo; estabelecimento inexistente, nunca.
+  for v_count in 1..25 loop
+    assert public.ai_rate_hit(v_a, 'cliente-insistente'), 'dentro do teto na mensagem ' || v_count;
+  end loop;
+  assert not public.ai_rate_hit(v_a, 'cliente-insistente'), '26ª mensagem recusada';
+  assert public.ai_rate_hit(v_a, 'outro-cliente'), 'outro cliente não é afetado';
+  assert not public.ai_rate_hit(gen_random_uuid(), 'x'), 'estabelecimento inexistente';
+
   -- Funções que o anônimo consegue executar: exatamente estas.
   select string_agg(p.proname, ',' order by p.proname) into v_list
   from pg_proc p where p.pronamespace = 'public'::regnamespace and has_function_privilege('anon', p.oid, 'execute');
-  assert v_list = 'book_appointment,cancel_appointment,get_appointment,get_availability,is_business_owner,reschedule_appointment',
+  assert v_list = 'ai_rate_hit,book_appointment,cancel_appointment,get_appointment,get_availability,is_business_owner,reschedule_appointment',
     'funções expostas ao anônimo: ' || v_list;
   -- E as que só o dono logado consegue, além das públicas.
   select string_agg(p.proname, ',' order by p.proname) into v_list

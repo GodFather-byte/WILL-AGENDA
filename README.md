@@ -22,7 +22,15 @@ Plataforma de agendamento online para clínicas, estéticas, salões de beleza e
 - **Marca própria**: logotipo, cor, nome, endereço da página e textos. Página e painel instaláveis na tela inicial,
   com manifesto por estabelecimento.
 
-Ainda não entraram: atendente de IA, copiloto do dono e checkout de pagamento (próximas fases).
+- **Atendente de IA** na página pública: tira dúvidas, oferece horários livres e agenda, remarca e cancela pelo chat.
+  Só grava depois de mostrar o resumo e o cliente confirmar, e isso é conferido no servidor, não só pedido ao modelo.
+  Motor em `src/lib/ai/attendant.ts`.
+- **Copiloto do dono** (botão no painel): responde sobre agenda, horários vagos, faltas e clientes, e executa
+  alterações (bloquear e liberar agenda, mudar serviço, abrir ou fechar a agenda online, dar baixa em agendamento).
+  Motor em `src/lib/ai/copilot.ts`.
+- **Mensagem de reconquista** escrita pela IA na tela Clientes (sem IA, usa um texto padrão).
+
+Ainda não entrou: checkout de pagamento (próxima fase).
 
 ## Stack
 
@@ -52,6 +60,24 @@ npm run lint && npm run typecheck && npm run build
   funções expostas). Roda numa transação desfeita no final.
 - `supabase/tests/concorrencia.sh`: conexões reais em paralelo disputando o mesmo horário.
 - `e2e/agenda.spec.ts`: Playwright, com o navegador de propósito no fuso de Tóquio.
+
+## IA
+
+- Usa o tool runner do SDK (`@anthropic-ai/sdk`). O modelo vem de `ANTHROPIC_MODEL` (padrão `claude-opus-5-5`; em
+  produção, `claude-haiku-5-5`). O parâmetro `fallbacks` só é enviado para modelos que aceitam (o Haiku não aceita).
+- Serviços e profissionais vão para o prompt com códigos curtos (`s1`, `p2`), nunca UUIDs.
+- Entre um turno e outro só o texto das mensagens é reenviado; os dois prompts explicam isso ao modelo para ele não
+  "se corrigir" do que já fez.
+- Relógio e calendário dos próximos dias vão na última mensagem (o modelo não calcula data de cabeça), depois do
+  prompt de sistema, que fica em cache.
+- Limite de uso no banco (`ai_rate_hit`): 25 mensagens por cliente a cada 10 minutos e 600 por estabelecimento a cada
+  hora. O IP é guardado só como hash.
+- O atendente só enxerga agendamentos cujo link secreto está guardado no aparelho do cliente; não localiza ninguém
+  por nome ou telefone. O copiloto não recebe telefones.
+- Sem `ANTHROPIC_API_KEY` o sistema funciona normalmente: o botão do chat não aparece e o copiloto avisa que a IA não
+  foi configurada.
+- `e2e/ia.spec.ts` testa as ferramentas contra uma **API simulada** (`e2e/mock-anthropic.mjs`). Isso valida
+  ferramentas, travas e telas; a qualidade das respostas do modelo só se confirma com a chave real.
 
 ## Modelo de dados
 

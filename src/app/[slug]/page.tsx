@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { connection } from "next/server";
 import { BookingFlow } from "@/components/booking/BookingFlow";
+import { aiConfigured } from "@/lib/ai/client";
 import { bookableCatalog, fetchBusinessBySlug, fetchCatalog } from "@/lib/data";
 import { todayInSaoPaulo } from "@/lib/dates";
 import { createPublicClient } from "@/lib/supabase/public";
@@ -29,5 +31,8 @@ export default async function BusinessPage({ params }: PageProps<"/[slug]">) {
   const business = await fetchBusinessBySlug(supabase, slug);
   if (!business) notFound();
   const catalog = bookableCatalog(await fetchCatalog(supabase, business));
-  return <BookingFlow catalog={catalog} today={todayInSaoPaulo()} />;
+  // A data de hoje é lida a cada acesso, nunca pré-renderizada.
+  await connection();
+  // O botão do atendente só aparece se o dono ligou a IA e a instalação tem a chave configurada.
+  return <BookingFlow catalog={catalog} today={todayInSaoPaulo()} chat={business.ai_enabled && aiConfigured()} />;
 }

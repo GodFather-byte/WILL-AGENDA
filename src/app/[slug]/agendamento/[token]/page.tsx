@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { AppointmentView } from "@/components/booking/AppointmentView";
 import { todayInSaoPaulo } from "@/lib/dates";
 
@@ -14,5 +15,7 @@ export const metadata: Metadata = {
 
 export default async function AppointmentPage({ params }: PageProps<"/[slug]/agendamento/[token]">) {
   const { slug, token } = await params;
+  // A data de hoje é lida a cada acesso, nunca pré-renderizada.
+  await connection();
   return <AppointmentView slug={slug} token={token} today={todayInSaoPaulo()} />;
 }
