@@ -30,7 +30,11 @@ Plataforma de agendamento online para clínicas, estéticas, salões de beleza e
   Motor em `src/lib/ai/copilot.ts`.
 - **Mensagem de reconquista** escrita pela IA na tela Clientes (sem IA, usa um texto padrão).
 
-Ainda não entrou: checkout de pagamento (próxima fase).
+- **Pix copia e cola** (sem credenciais): com a chave Pix do estabelecimento, o link do agendamento mostra um QR
+  code com o valor exato do sinal. O dinheiro cai direto na conta do estabelecimento e o dono marca "pagamento
+  recebido" na agenda.
+- **Checkout do sinal, desligado por padrão**: pronto no código, ligado estabelecimento por estabelecimento quando ele
+  cadastrar as credenciais de produção. Ver "Pagamentos" abaixo.
 
 ## Stack
 
@@ -79,6 +83,50 @@ npm run lint && npm run typecheck && npm run build
 - `e2e/ia.spec.ts` testa as ferramentas contra uma **API simulada** (`e2e/mock-anthropic.mjs`). Isso valida
   ferramentas, travas e telas; a qualidade das respostas do modelo só se confirma com a chave real.
 
+## Pagamentos
+
+**Estado: construído e desligado.** `businesses.charge_on_booking` nasce `false` e só liga pela função
+`set_charge_on_booking`, que exige credencial cadastrada. Com ele desligado nada muda no fluxo do cliente e nenhuma
+chamada ao provedor acontece (conferido em teste).
+
+Com o interruptor ligado:
+
+1. O agendamento feito pelo cliente (site ou IA) nasce "aguardando pagamento" e reserva o horário por alguns minutos
+   (`hold_minutes`). Agendamento feito pelo dono no painel não cobra.
+2. O servidor cria um Pix no provedor com as credenciais **do estabelecimento** e mostra o código na página do
+   agendamento.
+3. O pagamento só é confirmado com o que a **API do provedor** responde. O webhook serve apenas de aviso: do corpo
+   dele só sai o identificador da cobrança. Valor pago diferente do cobrado não confirma.
+4. Sem pagamento no prazo, a reserva cai e o horário volta a ser oferecido. Pagamento que chega depois disso é
+   devolvido.
+5. Cancelamento dentro da regra (pelo cliente no prazo, ou pelo estabelecimento) com sinal pago gera estorno.
+
+Como é feito:
+
+- **Independente de provedor**: `src/lib/payments/types.ts` define três chamadas (criar Pix, consultar, estornar).
+  O Mercado Pago é o primeiro (`mercadopago.ts`); outro provedor entra implementando a mesma interface.
+- **Credenciais**: o dono digita o access token no painel; o servidor cifra (AES-256-GCM, chave derivada de
+  `PAYMENTS_SECRET`) e grava só o texto cifrado. Nenhuma tela, resposta ou log recebe a credencial de volta; aparecem
+  apenas os 4 últimos caracteres. Para ler o texto cifrado, o servidor apresenta ao banco uma chave de acesso
+  derivada por estabelecimento, da qual o banco guarda só o hash.
+- **Idempotência**: uma cobrança viva por agendamento (índice único no banco); a criação e o estorno no provedor
+  usam chave de idempotência fixa por cobrança; registrar o mesmo resultado duas vezes não muda nada.
+- **Estorno**: o cancelamento marca o pagamento como "estorno pendente" no banco; o servidor estorna e registra. Se o
+  cliente fechar a página antes, o estorno é concluído quando a página do agendamento ou a agenda do painel abrir de
+  novo. Não há rotina agendada; se quiser, dá para ligar um cron da Vercel em `/api/painel/pagamentos/pendencias`.
+
+Para ligar em produção (só depois de validar com credenciais de teste do estabelecimento):
+
+1. Na Vercel, em Settings → Environment Variables, cadastre `PAYMENTS_SECRET` (32 caracteres ou mais, aleatório).
+   Trocar esse valor depois invalida as credenciais já guardadas.
+2. No painel do estabelecimento, em Configurações → Pagamentos, o dono cola o access token de produção do Mercado
+   Pago e liga "Cobrar o sinal no agendamento".
+
+**O que foi e o que não foi testado:** a lógica acima foi testada no banco (`supabase/tests/pagamentos.sql`) e no
+navegador (`e2e/pagamento.spec.ts`) contra um **simulador** do Mercado Pago (`e2e/mock-mercadopago.mjs`). O Mercado
+Pago de verdade nunca foi chamado: formato exato dos campos, e-mail do pagador exigido pela API, prazo de expiração e
+entrega dos webhooks precisam ser validados com credenciais de teste antes de ligar para alguém.
+
 ## Modelo de dados
 
 | Tabela | O que guarda |
@@ -92,6 +140,8 @@ npm run lint && npm run typecheck && npm run build
 | `customers` | Nome e WhatsApp, um cadastro por telefone em cada estabelecimento |
 | `appointments` | Agendamentos, com link secreto e cópia de nome/duração/preço do serviço |
 | `rate_limits` | Contadores de limite de uso |
+| `payments` | Cobranças do sinal no provedor: valor, situação, identificador no provedor, estorno |
+| `payment_credentials` | Credencial do provedor por estabelecimento, cifrada; ninguém lê pela API |
 
 ## Regras de agenda
 
@@ -127,4 +177,6 @@ npm run lint && npm run typecheck && npm run build
   cadastre cada vaga como um profissional.
 - Fuso fixo de São Paulo.
 - Sem lembrete automático: o dono envia confirmação e link pelo próprio WhatsApp, com um toque.
+- Pagamento: só Pix, só sinal (ou valor total) no momento do agendamento, estorno sempre total. Sem cartão, sem
+  parcelamento, sem cobrança de falta.
 - Trocar o slug quebra os links já enviados.

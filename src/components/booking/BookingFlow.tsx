@@ -1,12 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { InstallPrompt } from "@/components/InstallGuide";
 import { STORAGE_PREFIX } from "@/lib/brand";
 import { brandStyle } from "@/lib/color";
 import { friendlyDate, hm, WEEKDAYS } from "@/lib/dates";
 import {
+  brl,
+  depositFor,
   durationLabel,
   errorMessage,
   formatPhone,
@@ -36,6 +39,7 @@ type Step = "service" | "professional" | "time" | "details" | "done";
 export function BookingFlow({ catalog, today, chat }: { catalog: Catalog; today: string; chat: boolean }) {
   const { business, services, professionals } = catalog;
   const supabase = useMemo(() => createClient(), []);
+  const router = useRouter();
 
   const [step, setStep] = useState<Step>("service");
   const [service, setService] = useState<Service | null>(null);
@@ -140,6 +144,11 @@ export function BookingFlow({ catalog, today, chat }: { catalog: Catalog; today:
       time: created.time,
       service: created.service_name,
     });
+    // Cobrança ligada: o agendamento nasce aguardando o sinal; a página dele mostra o Pix.
+    if (business.charge_on_booking && depositFor(business, created.price_cents) > 0) {
+      router.push(`/${business.slug}/agendamento/${created.token}`);
+      return;
+    }
     setBooked(created);
     go("done");
   }
@@ -333,8 +342,19 @@ export function BookingFlow({ catalog, today, chat }: { catalog: Catalog; today:
                   </p>
                 </div>
                 {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+                {business.charge_on_booking && depositFor(business, service.price_cents) > 0 && (
+                  <p className="rounded-lg bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+                    Para confirmar este horário é cobrado um sinal de{" "}
+                    <span className="font-semibold">{brl(depositFor(business, service.price_cents))}</span> via Pix, na
+                    próxima tela. O horário fica reservado por {business.hold_minutes} minutos enquanto você paga.
+                  </p>
+                )}
                 <button className="btn-primary w-full py-3 text-base" disabled={busy}>
-                  {busy ? "Agendando..." : "Confirmar agendamento"}
+                  {busy
+                    ? "Agendando..."
+                    : business.charge_on_booking && depositFor(business, service.price_cents) > 0
+                      ? "Reservar e pagar o sinal"
+                      : "Confirmar agendamento"}
                 </button>
                 <p className="text-xs text-stone-500">
                   {business.auto_confirm

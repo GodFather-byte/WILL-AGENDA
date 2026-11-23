@@ -19,6 +19,8 @@ export default defineConfig({
   webServer: [
     // API simulada da IA: valida as ferramentas, não a qualidade do modelo.
     { command: "node e2e/mock-anthropic.mjs", url: "http://127.0.0.1:4010", reuseExistingServer: true, timeout: 30_000 },
+    // Simulador do provedor de pagamento: valida a lógica do checkout, não o Mercado Pago de verdade.
+    { command: "node e2e/mock-mercadopago.mjs", url: "http://127.0.0.1:4020", reuseExistingServer: true, timeout: 30_000 },
     {
       command: "npm run dev",
       url: "http://localhost:3000",
@@ -28,6 +30,8 @@ export default defineConfig({
         ANTHROPIC_API_KEY: "chave-de-teste-simulada",
         ANTHROPIC_BASE_URL: "http://127.0.0.1:4010",
         ANTHROPIC_MODEL: "claude-haiku-5-5",
+        PAYMENTS_SECRET: "segredo-de-teste-com-mais-de-32-caracteres-0001",
+        MERCADOPAGO_API_URL: "http://127.0.0.1:4020",
       },
     },
   ],

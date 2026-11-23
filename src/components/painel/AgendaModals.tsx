@@ -9,6 +9,7 @@ import {
   durationLabel,
   errorMessage,
   formatPhone,
+  PAYMENT_STATUS_LABEL,
   SOURCE_LABEL,
   STATUS_LABEL,
   whatsappLink,
@@ -292,6 +293,10 @@ export function AppointmentModal({
     const { error } = await call();
     setBusy(false);
     if (error) return setError(errorMessage(error, "Não foi possível concluir."));
+    // Cancelamento de agendamento com sinal pago: o servidor faz o estorno.
+    if (appointment.payment_status === "paid") {
+      await fetch("/api/painel/pagamentos/pendencias", { method: "POST" }).catch(() => null);
+    }
     onChanged();
     if (close) onClose();
     else setMode("view");
@@ -336,6 +341,12 @@ export function AppointmentModal({
               {appointment.cancel_reason ? ` — ${appointment.cancel_reason}` : ""}
             </Line>
           )}
+          {(appointment.payment_status !== "none" || (business.pix_key && appointment.deposit_cents > 0)) && (
+            <Line label="Pagamento">
+              {PAYMENT_STATUS_LABEL[appointment.payment_status]}
+              {appointment.deposit_cents > 0 ? ` (sinal de ${brl(appointment.deposit_cents)})` : ""}
+            </Line>
+          )}
           <Line label="Criado em">{dateTimeInSaoPaulo(appointment.created_at)}</Line>
         </dl>
 
@@ -371,6 +382,18 @@ export function AppointmentModal({
                 </button>
               )}
             </div>
+            {/* Pix copia e cola (cobrança desligada): quem confere o recebimento é o dono. */}
+            {appointment.status !== "canceled" && ["none", "manual_paid"].includes(appointment.payment_status) && appointment.deposit_cents > 0 && business.pix_key && (
+              <button className="btn-outline w-full" disabled={busy}
+                onClick={() =>
+                  run(
+                    () => createClient().rpc("owner_mark_paid", { p_appointment_id: appointment.id, p_paid: appointment.payment_status === "none" }),
+                    false,
+                  )
+                }>
+                {appointment.payment_status === "none" ? "Marcar pagamento recebido" : "Desfazer pagamento recebido"}
+              </button>
+            )}
             {open && (
               <a className="btn-outline w-full" target="_blank" rel="noreferrer" href={whatsappLink(appointment.customer_phone, message)}>
                 Enviar confirmação e link pelo WhatsApp

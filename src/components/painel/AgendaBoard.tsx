@@ -68,6 +68,11 @@ export function AgendaBoard() {
   }, [supabase, business.id, date]);
 
   useEffect(() => {
+    // Estornos que ficaram pendentes (cliente cancelou e fechou a página): o servidor conclui.
+    if (business.charge_on_booking) void fetch("/api/painel/pagamentos/pendencias", { method: "POST" }).catch(() => null);
+  }, [business.charge_on_booking]);
+
+  useEffect(() => {
     const first = setTimeout(load, 0);
     // Tempo real + consulta de segurança: se a conexão em tempo real cair, a agenda não fica cega.
     const channel = supabase
@@ -251,7 +256,12 @@ export function AgendaBoard() {
                           }}>
                           <span className="font-bold">{a.time}</span> <span className="font-semibold">{a.customer_name}</span>
                           <span className="block truncate">{a.service_name}</span>
-                          {a.status === "pending" && <span className="block font-semibold">Aguardando confirmação</span>}
+                          {a.status === "pending" && (
+                            <span className="block font-semibold">
+                              {a.payment_status === "awaiting" ? "Aguardando pagamento" : "Aguardando confirmação"}
+                            </span>
+                          )}
+                          {(a.payment_status === "paid" || a.payment_status === "manual_paid") && <span className="block">Sinal pago</span>}
                           {a.status === "confirmed" && a.is_past && <span className="block font-semibold">Dar baixa</span>}
                         </button>
                       ))}

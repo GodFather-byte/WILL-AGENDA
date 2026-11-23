@@ -8,6 +8,7 @@ import { durationLabel, errorMessage, noticeLabel, priceLabel, STATUS_LABEL, wha
 import { createClient } from "@/lib/supabase/client";
 import type { AppointmentStatus, PublicAppointment, Slot } from "@/lib/types";
 import { BusinessHeader } from "./BusinessHeader";
+import { PaymentPanel, syncPayment } from "./PaymentPanel";
 import { SlotPicker } from "./SlotPicker";
 import { forgetAppointment, saveAppointment } from "./storage";
 
@@ -119,6 +120,8 @@ export function AppointmentView({ slug, token, today }: { slug: string; token: s
     if (error) return setError(errorMessage(error, "Não foi possível cancelar agora. Tente de novo em instantes."));
     setMode("view");
     setNotice(null);
+    // Se havia sinal pago, o servidor faz o estorno agora.
+    await syncPayment(token);
     await load();
   }
 
@@ -129,7 +132,11 @@ export function AppointmentView({ slug, token, today }: { slug: string; token: s
       <main className="mx-auto w-full max-w-2xl flex-1 space-y-4 px-4 pb-16 pt-4">
         <section className="card p-5" aria-live="polite">
           <p className={`chip ${STATUS_STYLE[appointment.status]}`}>
-            {appointment.status === "confirmed" && appointment.is_past ? "Realizado" : STATUS_LABEL[appointment.status]}
+            {appointment.payment_status === "awaiting" && appointment.status === "pending"
+              ? "Aguardando pagamento"
+              : appointment.status === "confirmed" && appointment.is_past
+                ? "Realizado"
+                : STATUS_LABEL[appointment.status]}
           </p>
           <h1 className="mt-3 text-xl font-bold">
             {appointment.service_name}
@@ -138,7 +145,7 @@ export function AppointmentView({ slug, token, today }: { slug: string; token: s
             </span>
           </h1>
           {notice && <p role="status" className="mt-2 text-sm font-medium text-green-700">{notice}</p>}
-          {appointment.status === "pending" && (
+          {appointment.status === "pending" && appointment.payment_status !== "awaiting" && (
             <p className="mt-2 text-sm text-stone-600">
               Seu horário está reservado. {business.name} ainda vai confirmar; esta página se atualiza sozinha.
             </p>
@@ -169,6 +176,8 @@ export function AppointmentView({ slug, token, today }: { slug: string; token: s
           )}
           {offline && <p className="mt-3 text-xs text-amber-700">Sem conexão. Mostrando a última atualização.</p>}
         </section>
+
+        {mode === "view" && <PaymentPanel appointment={appointment} token={token} onChanged={load} />}
 
         {open && mode === "view" && (
           <section className="card space-y-3 p-5">

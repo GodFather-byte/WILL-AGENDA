@@ -1,4 +1,4 @@
-import type { AppointmentSource, AppointmentStatus, Segment, Service } from "./types";
+import type { AppointmentSource, AppointmentStatus, PaymentStatus, Segment, Service } from "./types";
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -43,6 +43,22 @@ export const STATUS_LABEL: Record<AppointmentStatus, string> = {
   no_show: "Faltou",
   canceled: "Cancelado",
 };
+
+export const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
+  none: "Sem pagamento registrado",
+  awaiting: "Aguardando pagamento do sinal",
+  paid: "Sinal pago",
+  manual_paid: "Pagamento recebido",
+  refund_pending: "Estorno em andamento",
+  refunded: "Sinal estornado",
+};
+
+/** Mesma conta do banco (deposit_for): quanto é o sinal para um preço. */
+export function depositFor(business: { deposit_type: "percent" | "fixed" | "full"; deposit_value: number }, priceCents: number) {
+  if (business.deposit_type === "full") return priceCents;
+  if (business.deposit_type === "fixed") return Math.min(business.deposit_value, priceCents);
+  return Math.floor((priceCents * business.deposit_value) / 100);
+}
 
 export const SOURCE_LABEL: Record<AppointmentSource, string> = {
   web: "Site",

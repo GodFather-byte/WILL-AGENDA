@@ -238,7 +238,10 @@ export async function runAttendant(params: {
             horario: booked.time,
             profissional: booked.professional_name,
             valor: brl(booked.price_cents),
-            aviso: "O cliente verá na tela o botão 'Ver meu agendamento'.",
+            aviso:
+              booked.status === "pending" && business.charge_on_booking
+                ? "O horário está reservado, mas só fica confirmado depois do pagamento do sinal via Pix. O cliente paga pelo botão 'Ver meu agendamento', que aparece na tela, dentro do prazo mostrado lá."
+                : "O cliente verá na tela o botão 'Ver meu agendamento'.",
           });
         } catch (error) {
           return fail((error as Error).message);

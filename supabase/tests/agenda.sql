@@ -717,17 +717,7 @@ begin
   assert public.ai_rate_hit(v_a, 'outro-cliente'), 'outro cliente não é afetado';
   assert not public.ai_rate_hit(gen_random_uuid(), 'x'), 'estabelecimento inexistente';
 
-  -- Funções que o anônimo consegue executar: exatamente estas.
-  select string_agg(p.proname, ',' order by p.proname) into v_list
-  from pg_proc p where p.pronamespace = 'public'::regnamespace and has_function_privilege('anon', p.oid, 'execute');
-  assert v_list = 'ai_rate_hit,book_appointment,cancel_appointment,get_appointment,get_availability,is_business_owner,reschedule_appointment',
-    'funções expostas ao anônimo: ' || v_list;
-  -- E as que só o dono logado consegue, além das públicas.
-  select string_agg(p.proname, ',' order by p.proname) into v_list
-  from pg_proc p where p.pronamespace = 'public'::regnamespace
-    and has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute');
-  assert v_list = 'create_business,owner_agenda,owner_availability,owner_create_appointment,owner_create_block,owner_customers,owner_reschedule_appointment,owner_set_appointment_status,set_professional_services,set_working_hours',
-    'funções do painel: ' || v_list;
+  -- A lista exata de funções expostas é conferida em pagamentos.sql (a última migração).
   -- Nenhuma função aberta para "todo mundo" (PUBLIC).
   assert not exists (
     select 1 from pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) acl

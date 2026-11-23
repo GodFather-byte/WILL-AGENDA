@@ -20,7 +20,16 @@ export type Business = {
   max_advance_days: number;
   cancel_notice_minutes: number;
   ai_enabled: boolean;
+  /** Chave Pix para o "copia e cola" com confirmação manual. */
+  pix_key: string | null;
+  /** Cobrança do sinal pelo provedor. Desligada por padrão. */
+  charge_on_booking: boolean;
+  deposit_type: "percent" | "fixed" | "full";
+  deposit_value: number;
+  hold_minutes: number;
 };
+
+export type PaymentStatus = "none" | "awaiting" | "paid" | "manual_paid" | "refund_pending" | "refunded";
 
 export type Service = {
   id: string;
@@ -115,6 +124,12 @@ export type PublicAppointment = {
   can_change: boolean;
   change_deadline: string;
   is_past: boolean;
+  deposit_cents: number;
+  payment_status: PaymentStatus;
+  hold_expires_at: string | null;
+  hold_expired: boolean;
+  /** Cobrança mais recente no provedor, se houver. */
+  payment: { status: string; amount_cents: number; pix_code: string | null; ticket_url: string | null; expires_at: string } | null;
   business: Pick<
     Business,
     | "id"
@@ -127,6 +142,8 @@ export type PublicAppointment = {
     | "booking_notice"
     | "cancel_notice_minutes"
     | "choose_professional"
+    | "pix_key"
+    | "charge_on_booking"
   >;
 };
 
@@ -154,6 +171,9 @@ export type OwnerAppointment = {
   canceled_by: "customer" | "business" | null;
   is_past: boolean;
   created_at: string;
+  deposit_cents: number;
+  payment_status: PaymentStatus;
+  hold_expires_at: string | null;
 };
 
 export type Block = {

@@ -8,6 +8,7 @@ import { formatPhone, normalizePhone, SEGMENT_LABEL, SLUG_PATTERN } from "@/lib/
 import { createClient } from "@/lib/supabase/client";
 import { useBusiness } from "./BusinessContext";
 import { LogoUpload } from "./LogoUpload";
+import { PaymentSettings } from "./PaymentSettings";
 
 const NOTICE_OPTIONS = [
   [0, "Sem antecedência"], [30, "30 minutos"], [60, "1 hora"], [120, "2 horas"], [240, "4 horas"],
@@ -79,6 +80,7 @@ export function SettingsForm() {
   }
 
   return (
+    <div className="space-y-8">
     <form onSubmit={save} className="max-w-2xl space-y-8">
       <h1 className="text-xl font-bold">Configurações</h1>
 
@@ -199,6 +201,8 @@ export function SettingsForm() {
       )}
       <button className="btn-primary" disabled={busy}>{busy ? "Salvando..." : "Salvar configurações"}</button>
     </form>
+    <PaymentSettings />
+    </div>
   );
 }
 
